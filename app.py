@@ -8,7 +8,7 @@ import numpy as np
 app = Flask(__name__)
 
 # Tesseract yolunu belirtme
-pytesseract.pytesseract.tesseract_cmd = r'"""C:\Users\Hasan\OneDrive\Belgeler\Tesseract"""'
+pytesseract.pytesseract.tesseract_cmd = r'""""Tesseract""""'
 
 # Çemberin işaretlenip işaretlenmediğini kontrol etme fonksiyonu
 def is_circle_filled(x, y, r, image):
