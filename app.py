@@ -1,14 +1,13 @@
-from flask import Flask, request, send_file, jsonify
+from flask import Flask, request, jsonify
 from PIL import Image
 import io
-import pytesseract
 import cv2
 import numpy as np
+import os
+import base64
 
+TEMP_IMG_PATH = os.path.join(os.getcwd(), "processed_image.png")
 app = Flask(__name__)
-
-# Tesseract yolunu belirtme
-pytesseract.pytesseract.tesseract_cmd = r'""""Tesseract""""'
 
 # Çemberin işaretlenip işaretlenmediğini kontrol etme fonksiyonu
 def is_circle_filled(x, y, r, image):
@@ -39,45 +38,49 @@ def process_image():
         edges,
         cv2.HOUGH_GRADIENT, dp=1.2, minDist=20, param1=50, param2=30, minRadius=10, maxRadius=20
     )
-
-    filled_circles = []
-    filled_circles_data = []
+    results = {}  # Sonuçları saklamak için bir sözlük oluşturuyoruz
 
     # Eğer çemberler bulunduysa
     if circles is not None:
         circles = np.round(circles[0, :]).astype("int")
-        for (x, y, r) in circles:
-            # Çemberin etrafına yeşil bir daire çiz
-            cv2.circle(img_np, (x, y), r, (0, 255, 0), 4)
+        sorted_circles = sorted(circles, key=lambda c: (c[1], c[0]))  # Y eksenine göre sıralama
 
-            # Çemberin işaretlenip işaretlenmediğini kontrol et
-            if is_circle_filled(x, y, r, gray):
-                filled_circles.append((x, y))
-                filled_circles_data.append({"circle_center": (x, y), "filled": True})
-            else:
-                filled_circles_data.append({"circle_center": (x, y), "filled": False})
+        # 5 şıklı sorular için çemberleri kontrol et
+        choice_labels = ['A', 'B', 'C', 'D', 'E']
+        question_num = 1
+        for i in range(0, len(sorted_circles), 5):
+            question_choices = sorted_circles[i:i + 5]
+            correct_choice = None
 
-    # OCR ile metin tanıma (optik formdaki yazılar)
-    text = pytesseract.image_to_string(gray)
+            # 5 şıkkı kontrol et ve işaretlenen şıkkı bul
+            for idx, (x, y, r) in enumerate(question_choices):
+                # Çemberin etrafına yeşil bir daire çiz
+                cv2.circle(img_np, (x, y), r, (0, 255, 0), 4)
 
-    # İşlenmiş görüntüyü bellek üzerinde tutma
-    img_io = io.BytesIO()
-    processed_img = Image.fromarray(cv2.cvtColor(img_np, cv2.COLOR_BGR2RGB))
-    processed_img.save(img_io, 'PNG')
-    img_io.seek(0)
+                # Çemberin işaretlenip işaretlenmediğini kontrol et
+                if is_circle_filled(x, y, r, gray):
+                    cv2.circle(img_np, (x, y), r, (0, 0, 255), 4)
+                    # İşaretlenen şık doğru cevap olarak kabul edilir
+                    correct_choice = choice_labels[idx]
+                    results[f"Question {question_num}"] = f"Answer: {correct_choice}"
+                    question_num += 1
+    else:
+        results["message"] = "Çemberler bulunamadı."
 
-    # Görseli ve JSON verisini aynı anda döndürmek için:
-    response = {
-        "text": text,
-        "filled_circles": filled_circles_data
-    }
 
-    return send_file(
-        img_io,
-        mimetype='image/png',
-        as_attachment=True,
-        download_name='processed_image.png'
-    ), jsonify(response)
+    # İşlenmiş görüntüyü kaydet
+    processed_image_path = TEMP_IMG_PATH
+    cv2.imwrite(processed_image_path, cv2.cvtColor(img_np, cv2.COLOR_RGB2BGR))
+
+    # Görseli Base64'e dönüştürme
+    with open(processed_image_path, "rb") as image_file:
+        img_bytes = image_file.read()
+        img_base64 = base64.b64encode(img_bytes).decode("utf-8")  # Base64 kodunu elde et
+
+    return jsonify({
+        'results': results,
+        'processed_image': img_base64  # Base64 kodunu JSON ile gönder
+    }), 200
 
 if __name__ == '__main__':
     # Flask uygulamasını başlat
